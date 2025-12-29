@@ -1,42 +1,56 @@
 import streamlit as st
-from deepface import DeepFace
+import face_recognition
+import numpy as np
 from PIL import Image
+import os
 import tempfile
 
 st.set_page_config(page_title="Celebrity Look-Alike", layout="centered")
 
 st.title("🎭 Celebrity Look-Alike Finder")
 
-uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+UPLOAD_DIR = "data"
+
+uploaded_file = st.file_uploader("Upload your photo", type=["jpg", "png", "jpeg"])
 
 if uploaded_file:
     image = Image.open(uploaded_file)
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    with st.spinner("Finding your celebrity twin..."):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-            image.save(tmp.name)
-            img_path = tmp.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
+        image.save(temp.name)
+        user_img = face_recognition.load_image_file(temp.name)
+        user_encoding = face_recognition.face_encodings(user_img)
 
-        try:
-            result = DeepFace.find(
-                img_path=img_path,
-                db_path="data",   # folder with actor images
-                enforce_detection=False,
-                model_name="VGG-Face"
-            )
+    if not user_encoding:
+        st.error("No face detected.")
+        st.stop()
 
-            if len(result) > 0 and len(result[0]) > 0:
-                top = result[0].iloc[0]
-                st.success("🎉 Match Found!")
-                st.write(f"**Celebrity:** {top['identity'].split('/')[-2]}")
-                st.write(f"**Similarity:** {round((1 - top['distance']) * 100, 2)}%")
-            else:
-                st.warning("No close match found.")
+    user_encoding = user_encoding[0]
 
-        except Exception as e:
-            st.error("Something went wrong")
-            st.code(str(e))
+    best_match = None
+    best_distance = 1.0
+
+    for person in os.listdir(UPLOAD_DIR):
+        person_dir = os.path.join(UPLOAD_DIR, person)
+        if not os.path.isdir(person_dir):
+            continue
+
+        for img in os.listdir(person_dir):
+            img_path = os.path.join(person_dir, img)
+            known_img = face_recognition.load_image_file(img_path)
+            encodings = face_recognition.face_encodings(known_img)
+
+            if encodings:
+                dist = np.linalg.norm(encodings[0] - user_encoding)
+                if dist < best_distance:
+                    best_distance = dist
+                    best_match = person
+
+    if best_match:
+        st.success(f"🎉 You look like **{best_match}**!")
+    else:
+        st.warning("No matching face found.")
 
 
 
